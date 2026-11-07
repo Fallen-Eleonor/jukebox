@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}#player{width:100%;height:100%}</style>
+</head><body><div id="player"></div>
+<script>
+var INITVOL = 25;
+var realPlayer = null, queue = [], probeTimer = null;
+
+function bridge(name, arg) { try { if (window.jukebox && jukebox[name]) jukebox[name](arg); } catch (e) {} }
+
+function call(name, args) {
+    if (realPlayer) { try { realPlayer[name].apply(realPlayer, args); } catch (e) {} }
+    else queue.push([name, args]);
+}
+
+var player = {};
+["loadVideoById", "cueVideoById", "playVideo", "pauseVideo", "stopVideo", "setVolume", "seekTo", "mute", "unMute"].forEach(function (n) {
+    player[n] = function () { call(n, Array.prototype.slice.call(arguments)); };
+});
+player.getDuration = function () { return (realPlayer && realPlayer.getDuration) ? realPlayer.getDuration() : 0; };
+
+function onYouTubeIframeAPIReady() {
+    new YT.Player("player", {
+        width: "100%", height: "100%",
+        playerVars: { autoplay: 0, controls: 1, playsinline: 1, rel: 0 },
+        events: {
+            onReady: function (e) {
+                realPlayer = e.target;
+                try { realPlayer.setVolume(INITVOL); } catch (err) {}
+                var q = queue; queue = [];
+                q.forEach(function (c) { try { realPlayer[c[0]].apply(realPlayer, c[1]); } catch (err) {} });
+                bridge("ready", 1);
+            },
+            onError: function (e) { bridge("error", e.data); },
+            onStateChange: function (e) { bridge("state", e.data); }
+        }
+    });
+}
+
+// проверка ролика: грузим без звука, ждём длительность, останавливаем
+function probe(id) {
+    player.mute();
+    player.loadVideoById(id, 0, "small");
+    var tries = 0;
+    clearInterval(probeTimer);
+    probeTimer = setInterval(function () {
+        tries++;
+        var d = player.getDuration();
+        if (d > 0) { clearInterval(probeTimer); player.stopVideo(); bridge("info", d); }
+        else if (tries > 60) { clearInterval(probeTimer); bridge("error", -1); }
+    }, 250);
+}
+
+var s = document.createElement("script");
+s.src = "https://www.youtube.com/iframe_api";
+document.head.appendChild(s);
+</script></body></html>
